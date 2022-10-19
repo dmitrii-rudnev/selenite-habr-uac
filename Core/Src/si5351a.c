@@ -48,7 +48,7 @@ int16_t  iqmsa = 0;
 
 /* External variables --------------------------------------------------------*/
 
-extern I2C_HandleTypeDef hi2c;
+extern I2C_HandleTypeDef SI5351_I2C_PORT;
 
 /* Private functions ---------------------------------------------------------*/
 
@@ -57,13 +57,16 @@ extern I2C_HandleTypeDef hi2c;
  *
  */
 
-void si5351_i2c_is_ready (void)
+uint8_t si5351_i2c_is_not_ready (void)
 {
-  if (HAL_I2C_IsDeviceReady (&hi2c, (uint16_t) SI5351_BUS_BASE_ADDR << 1,
-                             2, I2CTIMEOUT) != HAL_OK)
+  if (HAL_I2C_IsDeviceReady (&SI5351_I2C_PORT,
+                             (uint16_t) SI5351_BUS_BASE_ADDR << 1,
+                             2, SI5351_I2CTIMEOUT) != HAL_OK)
   {
     Error_Handler ();
+    return 1U;
   }
+  return 0U;
 }
 
 /**
@@ -73,7 +76,7 @@ void si5351_i2c_is_ready (void)
 
 void si5351_i2c_get_error (void)
 {
-  if (HAL_I2C_GetError (&hi2c) != HAL_I2C_ERROR_AF)
+  if (HAL_I2C_GetError (&SI5351_I2C_PORT) != HAL_I2C_ERROR_AF)
   {
     Error_Handler ();
   }
@@ -90,10 +93,11 @@ void si5351_i2c_get_error (void)
 
 void si5351_write_bulk (uint8_t addr, uint8_t *data, uint8_t bytes)
 {
-  si5351_i2c_is_ready ();
+  if (si5351_i2c_is_not_ready ()) return;
 
-  if (HAL_I2C_Mem_Write (&hi2c, (uint16_t) SI5351_BUS_BASE_ADDR << 1,
-                         addr, 1, data, bytes, I2CTIMEOUT) != HAL_OK)
+  if (HAL_I2C_Mem_Write (&SI5351_I2C_PORT,
+                         (uint16_t) SI5351_BUS_BASE_ADDR << 1,
+                         addr, 1, data, bytes, SI5351_I2CTIMEOUT) != HAL_OK)
   {
     si5351_i2c_get_error ();
   }
@@ -109,12 +113,13 @@ void si5351_write_bulk (uint8_t addr, uint8_t *data, uint8_t bytes)
 
 void si5351_write (uint8_t addr, uint8_t data)
 {
+  if (si5351_i2c_is_not_ready ()) return;
+
   uint8_t d[2] = {addr, data};
 
-  si5351_i2c_is_ready ();
-
-  if (HAL_I2C_Master_Transmit (&hi2c, (uint16_t) SI5351_BUS_BASE_ADDR << 1,
-                               (uint8_t *) d, 2, I2CTIMEOUT) != HAL_OK)
+  if (HAL_I2C_Master_Transmit (&SI5351_I2C_PORT,
+                               (uint16_t) SI5351_BUS_BASE_ADDR << 1,
+                               (uint8_t *) d, 2, SI5351_I2CTIMEOUT) != HAL_OK)
   {
     si5351_i2c_get_error ();
   }
@@ -130,18 +135,21 @@ void si5351_write (uint8_t addr, uint8_t data)
 
 void si5351_read (uint8_t addr, uint8_t *data)
 {
-  si5351_i2c_is_ready ();
+  if (si5351_i2c_is_not_ready ()) return;
 
-  while (HAL_I2C_Master_Transmit (&hi2c, (uint16_t) SI5351_BUS_BASE_ADDR << 1,
-                                  (uint8_t*) &addr, 1, I2CTIMEOUT) != HAL_OK)
+  while (HAL_I2C_Master_Transmit (&SI5351_I2C_PORT,
+                                  (uint16_t) SI5351_BUS_BASE_ADDR << 1,
+                                  (uint8_t*) &addr, 1, SI5351_I2CTIMEOUT) != HAL_OK)
   {
     si5351_i2c_get_error ();
+    return;
   }
 
-  si5351_i2c_is_ready ();
+  if (si5351_i2c_is_not_ready ()) return;
 
-  while (HAL_I2C_Master_Receive (&hi2c, (uint16_t) SI5351_BUS_BASE_ADDR << 1,
-                                 data, 1, I2CTIMEOUT) != HAL_OK)
+  while (HAL_I2C_Master_Receive (&SI5351_I2C_PORT,
+                                 (uint16_t) SI5351_BUS_BASE_ADDR << 1,
+                                 data, 1, SI5351_I2CTIMEOUT) != HAL_OK)
   {
     si5351_i2c_get_error ();
   }

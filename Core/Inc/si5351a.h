@@ -34,19 +34,12 @@ void Si5351a_Set_Freq (int32_t, uint16_t, uint16_t);
 
 /* Private defines -----------------------------------------------------------*/
 
-#ifndef F_XTAL
 #define F_XTAL                    24999900
-#endif
 
-#ifndef hi2c
-#define hi2c                      hi2c1
-#endif
-
-#define I2CTIMEOUT                10
-
-#ifndef SI5351_BUS_BASE_ADDR
+#define SI5351_I2C_PORT           hi2c1
+#define SI5351_I2CTIMEOUT         10
 #define SI5351_BUS_BASE_ADDR      0x60
-#endif
+
 
 enum ms_t {
   PLLA = 0, PLLB = 1,

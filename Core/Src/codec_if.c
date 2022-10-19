@@ -96,39 +96,53 @@ void codec_buff_init (void)
 
 #if (CODEC)
 /**
+ * @brief This function checks if the I2C device is ready
+ *
+ */
+
+uint8_t codec_i2c_is_not_ready (void)
+{
+  if (HAL_I2C_IsDeviceReady (&CODEC_I2C_PORT,
+                             (uint16_t) CODEC_BUS_BASE_ADDR << 1,
+                             2, CODEC_I2CTIMEOUT) != HAL_OK)
+  {
+    Error_Handler ();
+    return 1U;
+  }
+  return 0U;
+}
+
+/**
+ * @brief This function checks for I2C transmission errors
+ *
+ */
+
+void codec_i2c_get_error (void)
+{
+  if (HAL_I2C_GetError (&CODEC_I2C_PORT) != HAL_I2C_ERROR_AF)
+  {
+    Error_Handler ();
+  }
+}
+
+
+/**
  * @brief This function writes to a codec register
  *
  */
 
-uint8_t codec_write_reg (uint8_t addr, uint8_t data)
+void codec_write_reg (uint8_t addr, uint8_t data)
 {
-  uint8_t d[2];
+  if (codec_i2c_is_not_ready ()) return;
 
-  if (HAL_I2C_IsDeviceReady (&CODEC_I2C_PORT,
-                             (uint16_t) CODEC_BUS_BASE_ADDR << 1, 2,
-                             CODEC_I2CTIMEOUT) != HAL_OK)
-  {
-    Error_Handler ();
-  }
+  uint8_t d [2] = { addr, data };
 
-  /* Format array to send */
-  d[0] = addr;
-  d[1] = data;
-
-  /* Try to transmit via I2C */
   if (HAL_I2C_Master_Transmit (&CODEC_I2C_PORT,
                                (uint16_t) CODEC_BUS_BASE_ADDR << 1,
                                (uint8_t*) d, 2, CODEC_I2CTIMEOUT) != HAL_OK)
   {
-    /* Check error */
-    if (HAL_I2C_GetError (&CODEC_I2C_PORT) != HAL_I2C_ERROR_AF)
-    {
-      Error_Handler ();
-      /* Return error */
-      return 1;
-    }
+    codec_i2c_get_error ();
   }
-  return 0;
 }
 
 
@@ -137,48 +151,28 @@ uint8_t codec_write_reg (uint8_t addr, uint8_t data)
  *
  */
 
-uint8_t codec_read_reg (uint8_t addr)
+void codec_read_reg (uint8_t addr, uint8_t *data)
 {
-  uint8_t d[2];
+  if (codec_i2c_is_not_ready ()) return;
 
-  if (HAL_I2C_IsDeviceReady (&CODEC_I2C_PORT,
-                             (uint16_t) CODEC_BUS_BASE_ADDR << 1, 2,
-                             CODEC_I2CTIMEOUT) != HAL_OK)
-  {
-    Error_Handler ();
-  }
+  addr -= 1U;
 
-  /* Format array to send */
-  d[0] = addr - 1;
-  d[1] = 0;
-
-  /* Try to transmit via I2C */
   if (HAL_I2C_Master_Transmit (&CODEC_I2C_PORT,
                                (uint16_t) CODEC_BUS_BASE_ADDR << 1,
-                               (uint8_t*) &d[0], 1, CODEC_I2CTIMEOUT) != HAL_OK)
+                               (uint8_t*) &addr, 1, CODEC_I2CTIMEOUT) != HAL_OK)
   {
-    /* Check error */
-    if (HAL_I2C_GetError (&CODEC_I2C_PORT) != HAL_I2C_ERROR_AF)
-    {
-      Error_Handler ();
-      /* Return error */
-      return 0;
-    }
+    codec_i2c_get_error ();
+    return;
   }
-  /* Try to receive via I2C */
+
+  if (codec_i2c_is_not_ready ()) return;
+
   if (HAL_I2C_Master_Receive (&CODEC_I2C_PORT,
                               (uint16_t) CODEC_BUS_BASE_ADDR << 1,
-                              (uint8_t*) &d[1], 1, CODEC_I2CTIMEOUT) != HAL_OK)
+                              data, 1, CODEC_I2CTIMEOUT) != HAL_OK)
   {
-    /* Check error */
-    if (HAL_I2C_GetError (&CODEC_I2C_PORT) != HAL_I2C_ERROR_AF)
-    {
-      Error_Handler ();
-      /* Return error */
-      return 0;
-    }
+    codec_i2c_get_error ();
   }
-  return d[1];
 }
 
 /**
@@ -192,7 +186,7 @@ void codec_bit_set (uint8_t addr, uint8_t bit)
 
   if (bit < 8)
   {
-    data = codec_read_reg (addr);
+    codec_read_reg (addr, &data);
     data |= (1 << bit);
     codec_write_reg (addr, data);
   }
@@ -209,7 +203,7 @@ void codec_bit_reset (uint8_t addr, uint8_t bit)
 
   if (bit < 8)
   {
-    data = codec_read_reg (addr);
+    codec_read_reg (addr, &data);
     data &= ~(1 << bit);
     codec_write_reg (addr, data);
   }
@@ -259,7 +253,7 @@ void codec_set_gain (uint8_t addr, uint8_t gain)
 
   if (gain > 127) gain = 127;
 
-  data  = codec_read_reg (addr);
+  codec_read_reg (addr, &data);
 
   data &= 0x80;
   data |= gain;
@@ -293,7 +287,7 @@ void codec_set_in_level (uint8_t addr, uint8_t level)
     if (level > 0x08) level = 0x08;
   }
 
-  data = codec_read_reg (addr);
+  codec_read_reg (addr, &data);
 
   if (addr < 19)
   {
@@ -328,7 +322,7 @@ void codec_set_out_level (uint8_t addr, uint8_t level)
 
   if (level > 0x09) level = 0x09;
 
-  data  = codec_read_reg (addr);
+  codec_read_reg (addr, &data);
 
   data &= 0x0F;
   data |= (level << 4);
