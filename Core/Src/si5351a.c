@@ -52,7 +52,12 @@ extern I2C_HandleTypeDef hi2c;
 
 /* Private functions ---------------------------------------------------------*/
 
-void si5351_is_ready (void)
+/**
+ * @brief This function checks if the I2C device is ready
+ *
+ */
+
+void si5351_i2c_is_ready (void)
 {
   if (HAL_I2C_IsDeviceReady (&hi2c, (uint16_t) SI5351_BUS_BASE_ADDR << 1,
                              2, I2CTIMEOUT) != HAL_OK)
@@ -61,7 +66,12 @@ void si5351_is_ready (void)
   }
 }
 
-void si5351_get_error (void)
+/**
+ * @brief This function checks for I2C transmission errors
+ *
+ */
+
+void si5351_i2c_get_error (void)
 {
   if (HAL_I2C_GetError (&hi2c) != HAL_I2C_ERROR_AF)
   {
@@ -69,56 +79,100 @@ void si5351_get_error (void)
   }
 }
 
+/**
+ * @brief This function transfers some bytes to I2C device
+ *
+ * @param addr  - initial address of destination
+ * @param *data - pointer to data source
+ * @param bytes - number of bytes for transfer
+ *
+ */
+
 void si5351_write_bulk (uint8_t addr, uint8_t *data, uint8_t bytes)
 {
-  si5351_is_ready ();
+  si5351_i2c_is_ready ();
 
   if (HAL_I2C_Mem_Write (&hi2c, (uint16_t) SI5351_BUS_BASE_ADDR << 1,
                          addr, 1, data, bytes, I2CTIMEOUT) != HAL_OK)
   {
-    si5351_get_error ();
+    si5351_i2c_get_error ();
   }
 }
+
+/**
+ * @brief This function transfers one bytes to I2C device register
+ *
+ * @param addr - register address
+ * @param data - value
+ *
+ */
 
 void si5351_write (uint8_t addr, uint8_t data)
 {
   uint8_t d[2] = {addr, data};
 
-  si5351_is_ready ();
+  si5351_i2c_is_ready ();
 
   if (HAL_I2C_Master_Transmit (&hi2c, (uint16_t) SI5351_BUS_BASE_ADDR << 1,
                                (uint8_t *) d, 2, I2CTIMEOUT) != HAL_OK)
   {
-    si5351_get_error ();
+    si5351_i2c_get_error ();
   }
 }
 
+/**
+ * @brief This function receives one bytes from I2C device register
+ *
+ * @param addr  - register address
+ * @param *data - pointer to destination
+ *
+ */
+
 void si5351_read (uint8_t addr, uint8_t *data)
 {
-  si5351_is_ready ();
+  si5351_i2c_is_ready ();
 
   while (HAL_I2C_Master_Transmit (&hi2c, (uint16_t) SI5351_BUS_BASE_ADDR << 1,
                                   (uint8_t*) &addr, 1, I2CTIMEOUT) != HAL_OK)
   {
-    si5351_get_error ();
+    si5351_i2c_get_error ();
   }
 
-  si5351_is_ready ();
+  si5351_i2c_is_ready ();
 
   while (HAL_I2C_Master_Receive (&hi2c, (uint16_t) SI5351_BUS_BASE_ADDR << 1,
                                  data, 1, I2CTIMEOUT) != HAL_OK)
   {
-    si5351_get_error ();
+    si5351_i2c_get_error ();
   }
 }
 
-void reset ()
+/**
+ * @brief This function resets PLLs
+ *
+ */
+
+void si5351_pll_reset ()
 {
-  // 0x20 reset PLLA; 0x80 reset PLLB
+  // Write 0x20 to Register 177 to reset PLLA
+  // Write 0x80 to Register 177 to reset PLLB
   si5351_write (177, 0xA0);
 }
 
-void ms (int8_t n, uint32_t div_nom, uint32_t div_denom, uint8_t pll, uint8_t _int, uint16_t phase, uint8_t rdiv)
+/**
+ * @brief This function calculate the multisynth stage
+ *
+ * @param n         - the stage instance (see ms_t enumerator)
+ * @param div_nom   - the first Multisynth divider value
+ * @param div_denom - the second Multisynth divider value
+ * @param pll       - the PLL instance
+ * @param _int      - _int = 1 if integer mode
+ * @param phase     - the value of phase shift
+ * @param rdiv      - the R Divider value
+ *
+ */
+
+void si5351_set_ms (int8_t n, uint32_t div_nom, uint32_t div_denom, uint8_t pll, uint8_t _int, uint16_t phase, uint8_t rdiv)
 {
   uint16_t msa;
   uint32_t msb, msc, msp1, msp2, msp3;
@@ -155,7 +209,18 @@ void ms (int8_t n, uint32_t div_nom, uint32_t div_denom, uint8_t pll, uint8_t _i
   }
 }
 
-void freqa (int32_t fout, uint16_t i, uint16_t q)
+/**
+ * @brief This function sets frequency and phases of CKL0 and CLK1 signals
+ *
+ * PLLA is used
+ *
+ * @param fout - TUNE frequency in Hz
+ * @param i    - phase of CKL0 signal 0...90 deg
+ * @param q    - phase of CKL1 signal 0...90 deg
+ *
+ */
+
+void si5351_set_freqa (int32_t fout, uint16_t i, uint16_t q)
 {
   // Set a CLK0 and CLK1 to fout Hz with phase i, q (on PLLA)
   uint8_t rdiv = 0;     // CLK pin sees fout / (2 ^ rdiv)
@@ -209,18 +274,26 @@ void freqa (int32_t fout, uint16_t i, uint16_t q)
   // Variable PLLA VCO frequency at integer multiple of fout at around 27MHz * 16 = 432MHz
   // si5351 spectral purity considerations: https://groups.io/g/QRPLabs/message/42662
 
-  ms (MSNA, fvcoa, fxtal, PLLA, 0, 0, 0);     // PLLA in fractional mode
-  ms (MS0,  fvcoa, fout,  PLLA, 0, i, rdiv);  // Multisynth stage with integer divider but in frac mode due to phase setting
-  ms (MS1,  fvcoa, fout,  PLLA, 0, q, rdiv);
+  si5351_set_ms (MSNA, fvcoa, fxtal, PLLA, 0, 0, 0);     // PLLA in fractional mode
+  si5351_set_ms (MS0,  fvcoa, fout,  PLLA, 0, i, rdiv);  // Multisynth stage with integer divider but in frac mode due to phase setting
+  si5351_set_ms (MS1,  fvcoa, fout,  PLLA, 0, q, rdiv);
 
   if (iqmsa != (((int8_t) i - (int8_t) q) * ((int16_t) (fvcoa / fout)) / 90))
   {
     iqmsa = ((int8_t) i - (int8_t) q) * ((int16_t) (fvcoa / fout)) / 90;
-    reset ();
+    si5351_pll_reset ();
   }
 }
 
-void freqb (uint32_t fout)
+/**
+ * @brief This function sets CLK2 signal frequency
+ *
+ * PLLB is used
+ *
+ * @param fout - TUNE frequency in Hz
+ *
+ */
+void si5351_set_freqb (uint32_t fout)
 {  // Set a CLK2 to fout Hz (on PLLB)
     uint16_t d = (16 * fxtal) / fout;
 
@@ -228,11 +301,16 @@ void freqb (uint32_t fout)
 
     uint32_t fvcob = d * fout;  // Variable PLLB VCO frequency at integer multiple of fout at around 27MHz * 16 = 432MHz
 
-    ms (MSNB, fvcob, fxtal, PLLB, 0, 0, 0);
-    ms (MS2,  fvcob, fout,  PLLB, 0, 0, 0);
+    si5351_set_ms (MSNB, fvcob, fxtal, PLLB, 0, 0, 0);
+    si5351_set_ms (MS2,  fvcob, fout,  PLLB, 0, 0, 0);
 }
 
-void powerDown ()
+/**
+ * @brief This function resets si5351a chip to initial state
+ *
+ */
+
+void si5351_power_down ()
 {
   si5351_write (3, 0b11111111);       // Disable all CLK outputs
   si5351_write (24, 0b00010000);      // Disable state: CLK2 HIGH state, CLK0 & CLK1 LOW state when disabled; CLK2 needs to be in HIGH state to make sure that cap to gate is already charged, preventing "exponential pulse is caused by CLK2, which had been at 0v whilst it was disabled, suddenly generating a 5vpp waveform, which is “added to” the 0v filtered PWM output and causing the output fets to be driven with the full 5v pp.", see: https://forum.dl2man.de/viewtopic.php?t=146&p=1307#p1307
@@ -252,23 +330,37 @@ void powerDown ()
 
 /* Public functions ----------------------------------------------------------*/
 
+/**
+ * @brief This function sets TUNE frequency and phases
+ *
+ * @param fout - TUNE frequency in Hz
+ * @param i    - phase of CKL0 signal 0...90 deg
+ * @param q    - phase of CKL1 signal 0...90 deg
+ *
+ */
+
 void Si5351a_Set_Freq (int32_t fout, uint16_t i, uint16_t q)
 {
-  freqa (fout, i, q);
+  si5351_set_freqa (fout, i, q);
 }
+
+/**
+ * @brief This function resets chip and sets HSE and TUNE frequencies
+ *
+ */
 
 void Si5351a_Init (void)
 {
-  powerDown ();                 // Reset si5351a chip
+  si5351_power_down ();               // Reset si5351a chip
   HAL_Delay (100);
 
-  freqb (24576000U);            // Set HSE = 24.576 MHz
+  si5351_set_freqb (24576000U);       // Set HSE = 24.576 MHz
   HAL_Delay (100);
 
-  freqa (9997000U, 0, 90);      // Set Tune = 9997 kHz
+  si5351_set_freqa (9997000U, 0, 90); // Set Tune = 9997 kHz
   HAL_Delay (100);
 
-  si5351_write (3, 0b11111000); // Enable all CLK outputs
+  si5351_write (3, 0b11111000);       // Enable all CLK outputs
 }
 
 /****END OF FILE****/
