@@ -61,7 +61,7 @@ uint8_t si5351_i2c_is_not_ready (void)
 {
   if (HAL_I2C_IsDeviceReady (&SI5351_I2C_PORT,
                              (uint16_t) SI5351_BUS_BASE_ADDR << 1,
-                             2, SI5351_I2CTIMEOUT) != HAL_OK)
+                             2, SI5351_I2C_TIMEOUT) != HAL_OK)
   {
     Error_Handler ();
     return 1U;
@@ -97,7 +97,7 @@ void si5351_write_bulk (uint8_t addr, uint8_t *data, uint8_t bytes)
 
   if (HAL_I2C_Mem_Write (&SI5351_I2C_PORT,
                          (uint16_t) SI5351_BUS_BASE_ADDR << 1,
-                         addr, 1, data, bytes, SI5351_I2CTIMEOUT) != HAL_OK)
+                         addr, 1, data, bytes, SI5351_I2C_TIMEOUT) != HAL_OK)
   {
     si5351_i2c_get_error ();
   }
@@ -119,7 +119,7 @@ void si5351_write (uint8_t addr, uint8_t data)
 
   if (HAL_I2C_Master_Transmit (&SI5351_I2C_PORT,
                                (uint16_t) SI5351_BUS_BASE_ADDR << 1,
-                               (uint8_t *) d, 2, SI5351_I2CTIMEOUT) != HAL_OK)
+                               (uint8_t *) d, 2, SI5351_I2C_TIMEOUT) != HAL_OK)
   {
     si5351_i2c_get_error ();
   }
@@ -139,7 +139,7 @@ void si5351_read (uint8_t addr, uint8_t *data)
 
   while (HAL_I2C_Master_Transmit (&SI5351_I2C_PORT,
                                   (uint16_t) SI5351_BUS_BASE_ADDR << 1,
-                                  (uint8_t*) &addr, 1, SI5351_I2CTIMEOUT) != HAL_OK)
+                                  (uint8_t*) &addr, 1, SI5351_I2C_TIMEOUT) != HAL_OK)
   {
     si5351_i2c_get_error ();
     return;
@@ -149,7 +149,7 @@ void si5351_read (uint8_t addr, uint8_t *data)
 
   while (HAL_I2C_Master_Receive (&SI5351_I2C_PORT,
                                  (uint16_t) SI5351_BUS_BASE_ADDR << 1,
-                                 data, 1, SI5351_I2CTIMEOUT) != HAL_OK)
+                                 data, 1, SI5351_I2C_TIMEOUT) != HAL_OK)
   {
     si5351_i2c_get_error ();
   }
@@ -162,9 +162,9 @@ void si5351_read (uint8_t addr, uint8_t *data)
 
 void si5351_pll_reset ()
 {
-  // Write 0x20 to Register 177 to reset PLLA
-  // Write 0x80 to Register 177 to reset PLLB
-  si5351_write (177, 0xA0);
+  si5351_write (177, 0x20);  /* Write 0x20 to Register 177 to reset PLLA */
+//  si5351_write (177, 0x80);  /* Write 0x80 to Register 177 to reset PLLB */
+//  si5351_write (177, 0xA0);  /* Write 0xA0 to Register 177 to reset both PLL */
 }
 
 /**
@@ -185,11 +185,14 @@ void si5351_set_ms (int8_t n, uint32_t div_nom, uint32_t div_denom, uint8_t pll,
   uint16_t msa;
   uint32_t msb, msc, msp1, msp2, msp3;
 
-  msa = div_nom / div_denom;   // integer part: msa must be in range 15..90 for PLL, 8+1/1048575..900 for MS
+  msa = div_nom / div_denom;   /* integer part: msa must be in range 15..90 for PLL, 8+1/1048575..900 for MS */
 
-  if (msa == 4) { _int = 1; }  // To satisfy the MSx_INT=1 requirement of AN619, section 4.1.3 which basically says that for MS divider a value of 4 and integer mode must be used
+  /* to satisfy the MSx_INT=1 requirement of AN619, section 4.1.3 which basically says
+   * that for MS divider a value of 4 and integer mode must be used */
 
-  msb = (_int) ? 0 : (((uint64_t)(div_nom % div_denom)*_MSC) / div_denom); // fractional part
+  if (msa == 4) { _int = 1; }
+
+  msb = (_int) ? 0 : (((uint64_t)(div_nom % div_denom)*_MSC) / div_denom); /* fractional part */
 
   msc = (_int) ? 1 : _MSC;
 
@@ -205,14 +208,14 @@ void si5351_set_ms (int8_t n, uint32_t div_nom, uint32_t div_denom, uint8_t pll,
 
   if (n < 0)
   {
-    // MSNx PLLn: 0x40 = FBA_INT; 0x80 = CLKn_PDN
+    /* MSNx PLLn: 0x40 = FBA_INT; 0x80 = CLKn_PDN */
     si5351_write (n + 16 + 8, 0x80 | (0x40 * _int));
   }
   else
   {
-    // MSx CLKn: 0x0C = PLLA, 0x2C = PLLB local msynth; 3 = 8mA; 0x40 = MSx_INT; 0x80 = CLKx_PDN
+    /* MSx CLKn: 0x0C = PLLA, 0x2C = PLLB local msynth; 3 = 8mA; 0x40 = MSx_INT; 0x80 = CLKx_PDN */
     si5351_write (n + 16, ((pll) * 0x20) | 0x0C | 3 | (0x40 * _int));
-    // when using: make sure to configure MS in fractional-mode, perform reset afterwards
+    /* when using: make sure to configure MS in fractional-mode, perform reset afterwards */
     si5351_write (n + 165, (!_int) * phase * msa / 90);
   }
 }
@@ -230,17 +233,16 @@ void si5351_set_ms (int8_t n, uint32_t div_nom, uint32_t div_denom, uint8_t pll,
 
 void si5351_set_freqa (int32_t fout, uint16_t i, uint16_t q)
 {
-  // Set a CLK0 and CLK1 to fout Hz with phase i, q (on PLLA)
-  uint8_t rdiv = 0;     // CLK pin sees fout / (2 ^ rdiv)
+  uint8_t rdiv = 0;     /* CLK pin sees fout / (2 ^ rdiv) */
 
-  if (fout > 300000000) // for higher freqs, use 3rd harmonic
+  if (fout > 300000000) /* for higher freqs, use 3rd harmonic */
   {
     i /= 3;
     q /= 3;
     fout /= 3;
   }
 
-  if (fout < 500000)    // Divide by 128 for fout = 4..500kHz
+  if (fout < 500000)    /* Divide by 128 for fout = 4...500kHz */
   {
     rdiv = 7;
     fout *= 128;
@@ -248,7 +250,7 @@ void si5351_set_freqa (int32_t fout, uint16_t i, uint16_t q)
 
   uint16_t d;
 
-  if (fout < 30000000)  // Integer part  .. maybe 44?
+  if (fout < 30000000)  /* Integer part  .. maybe 44? */
   {
     d = (16 * fxtal) / fout;
   }
@@ -257,34 +259,28 @@ void si5351_set_freqa (int32_t fout, uint16_t i, uint16_t q)
     d = (32 * fxtal) / fout;
   }
 
-  if (fout < 3500000)   // PLL at 189MHz to cover 160m (freq > 1.48MHz) when using 27MHz crystal
-  {
-    d = (7 * fxtal) / fout;
-  }
+  /* PLL at (27 * 7) = 189MHz cover 160m band (freq > 1.48MHz) when using 27MHz crystal */
+  if (fout < 3500000) { d = (7 * fxtal) / fout; }
 
-  if (fout > 140000000) // for fout = 140..300MHz; AN619; 4.1.3, this implies integer mode
-  {
-    d = 4;
-  }
+  /* for fout = 140...300MHz; AN619; 4.1.3, this implies integer mode */
+  if (fout > 140000000) { d = 4; }
 
-  if (d % 2)            // even numbers preferred for divider (AN619 p.4 and p.6)
-  {
-    d++;
-  }
+  /* even numbers preferred for divider (AN619 p.4 and p.6) */
+  if (d % 2) { d++; }
 
+  /* Test if multiplier remains same for freq deviation +/- 5kHz, if not use different divider to make same */
   if ((d * (fout - 5000) / fxtal) != (d * (fout + 5000) / fxtal))
   {
     d += 2;
   }
-  // Test if multiplier remains same for freq deviation +/- 5kHz, if not use different divider to make same
 
   uint32_t fvcoa = d * fout;
-  // Variable PLLA VCO frequency at integer multiple of fout at around 27MHz * 16 = 432MHz
-  // si5351 spectral purity considerations: https://groups.io/g/QRPLabs/message/42662
+  /* Variable PLLA VCO frequency at integer multiple of fout at around 27MHz * 16 = 432MHz
+   * si5351 spectral purity considerations: https://groups.io/g/QRPLabs/message/42662 */
 
-  si5351_set_ms (MSNA, fvcoa, fxtal, PLLA, 0, 0, 0);     // PLLA in fractional mode
-  si5351_set_ms (MS0,  fvcoa, fout,  PLLA, 0, i, rdiv);  // Multisynth stage with integer divider but in frac mode due to phase setting
-  si5351_set_ms (MS1,  fvcoa, fout,  PLLA, 0, q, rdiv);
+  si5351_set_ms (MSNA, fvcoa, fxtal, PLLA, 0, 0, 0);     /* PLLA is in fractional mode */
+  si5351_set_ms (MS0,  fvcoa, fout,  PLLA, 0, i, rdiv);  /* Multisynth stage with integer divider */
+  si5351_set_ms (MS1,  fvcoa, fout,  PLLA, 0, q, rdiv);  /* but in frac mode due to phase setting */
 
   if (iqmsa != (((int8_t) i - (int8_t) q) * ((int16_t) (fvcoa / fout)) / 90))
   {
@@ -301,13 +297,14 @@ void si5351_set_freqa (int32_t fout, uint16_t i, uint16_t q)
  * @param fout - TUNE frequency in Hz
  *
  */
+
 void si5351_set_freqb (uint32_t fout)
-{  // Set a CLK2 to fout Hz (on PLLB)
+{
     uint16_t d = (16 * fxtal) / fout;
 
-    if (d % 2) { d++; }  // even numbers preferred for divider (AN619 p.4 and p.6)
+    if (d % 2) { d++; }         /* even numbers preferred for divider (AN619 p.4 and p.6) */
 
-    uint32_t fvcob = d * fout;  // Variable PLLB VCO frequency at integer multiple of fout at around 27MHz * 16 = 432MHz
+    uint32_t fvcob = d * fout;  /* PLLB VCO frequency at integer multiple of fout at around 27MHz * 16 = 432MHz */
 
     si5351_set_ms (MSNB, fvcob, fxtal, PLLB, 0, 0, 0);
     si5351_set_ms (MS2,  fvcob, fout,  PLLB, 0, 0, 0);
@@ -320,19 +317,28 @@ void si5351_set_freqb (uint32_t fout)
 
 void si5351_power_down ()
 {
-  si5351_write (3, 0b11111111);       // Disable all CLK outputs
-  si5351_write (24, 0b00010000);      // Disable state: CLK2 HIGH state, CLK0 & CLK1 LOW state when disabled; CLK2 needs to be in HIGH state to make sure that cap to gate is already charged, preventing "exponential pulse is caused by CLK2, which had been at 0v whilst it was disabled, suddenly generating a 5vpp waveform, which is “added to” the 0v filtered PWM output and causing the output fets to be driven with the full 5v pp.", see: https://forum.dl2man.de/viewtopic.php?t=146&p=1307#p1307
-  si5351_write (25, 0b00000000);      // Disable state: LOW state when disabled
+  si5351_write (3, 0b11111111);       /* Disable all CLK outputs */
+
+  /* Disable state: CLK2 HIGH state, CLK0 & CLK1 LOW state when disabled;
+   * CLK2 needs to be in HIGH state to make sure that cap to gate is already charged,
+   * preventing "exponential pulse is caused by CLK2,
+   * which had been at 0v whilst it was disabled, suddenly generating a 5vpp waveform,
+   * which is “added to” the 0v filtered PWM output and causing the output FETs
+   * to be driven with the full 5v pp.", see: https://forum.dl2man.de/viewtopic.php?t=146&p=1307#p1307 */
+  si5351_write (24, 0b00010000);
+
+  si5351_write (25, 0b00000000);      /* Disable state: LOW state when disabled */
 
   for (int addr = 16; addr != 24; addr++)
   {
-    si5351_write (addr, 0b10000000);  // Conserve power when output is disabled
+    si5351_write (addr, 0b10000000);  /* Conserve power when output is disabled */
   }
 
-  si5351_write (187, 0);              // Disable fanout (power-safe)
-  // To initialise things as they should:
-  si5351_write (149, 0);              // Disable spread spectrum enable
-  si5351_write (183, 0b11010010);     // Internal CL = 10 pF (default)
+  si5351_write (187, 0);              /* Disable fanout (power-safe) */
+
+  /* To initialise things as they should: */
+  si5351_write (149, 0);              /* Disable spread spectrum enable */
+  si5351_write (183, 0b11010010);     /* Internal CL = 10 pF (default) */
 }
 
 
@@ -347,7 +353,7 @@ void si5351_power_down ()
  *
  */
 
-void Si5351a_Set_Freq (int32_t fout, uint16_t i, uint16_t q)
+void Si5351a_Set_Freq (uint32_t fout, uint16_t i, uint16_t q)
 {
   si5351_set_freqa (fout, i, q);
 }
@@ -359,16 +365,16 @@ void Si5351a_Set_Freq (int32_t fout, uint16_t i, uint16_t q)
 
 void Si5351a_Init (void)
 {
-  si5351_power_down ();               // Reset si5351a chip
+  si5351_power_down ();               /* Reset si5351a chip */
   HAL_Delay (100);
 
-  si5351_set_freqb (24576000U);       // Set HSE = 24.576 MHz
+  si5351_set_freqb (24576000U);       /* Set HSE = 24.576 MHz */
   HAL_Delay (100);
 
-  si5351_set_freqa (9997000U, 0, 90); // Set Tune = 9997 kHz
+  si5351_set_freqa (9997000U, 0, 90); /* Set Tune = 9997 kHz */
   HAL_Delay (100);
 
-  si5351_write (3, 0b11111000);       // Enable all CLK outputs
+  si5351_write (3, 0b11111000);       /* Enable all CLK outputs */
 }
 
 /****END OF FILE****/
