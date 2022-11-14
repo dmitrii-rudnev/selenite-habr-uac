@@ -69,7 +69,7 @@ void Error_Handler(void);
 /* We may set CODEC and EMBED_ADC if DSP = 1 only */
 #if (DSP)
 /* ADC = 1 if used Built-In ADC    */
-#define EMBED_ADC  1
+#define EMBED_ADC  0
 /* CODEC = 0 if codec is dumb      */
 #define CODEC      1
 #endif /* DSP */
